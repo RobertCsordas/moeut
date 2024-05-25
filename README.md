@@ -25,15 +25,15 @@ The meaning of the arguments:
 - `n_layers` - number of layers
 - `n_heads` - number of attention heads
 - `ff_n_experts` - number of experts in the MLP layer (per group element)
-- `att_n_experts` - the number of attention experts (per group elements). If `att_n_experts=1`, SwitchHead is disabled and standard RoPE attention is used instead for efficiency reasons.
+- `att_n_experts` - the number of attention experts (per group elements). If `att_n_experts=1`, SwitchHead is disabled, and standard RoPE attention is used instead for efficiency reasons.
 - `d_head` - the size of the K, Q, V projections in the attention
 - `group_size` - the number of non-shared layers in the group (G in the paper)
-- `ff_k` - the number of simultaneously acrtive experts in the MLP layer
-- `att_k` - the number of simultaneously acrtive experts in the attention layer
+- `ff_k` - the number of simultaneously active experts in the MLP layer
+- `att_k` - the number of simultaneously active experts in the attention layer
 - `ff_expert_dropout` - expert dropout for the MLP layer. Not used in the paper.
 - `att_expert_dropout` - attention dropout for the MLP layer. Not used in the paper.
 - `ff_expert_size` - the size of the MLP experts.
-- `dropout` - dropout used before merining into the residual stream.
+- `dropout` - dropout used before merging into the residual stream.
 - `entropy_reg` - entropy regularization coefficient for the MLP layer ($\gamma$)
 - `att_entropy_reg` - entropy regularization coefficient for the attention layer ($\delta$)
 - `attention` - the attention layer to use.
@@ -47,20 +47,20 @@ def forward(self, x: torch.Tensor, mask: Optional[AttentionMask] = None,
 The meaning of the arguments:
 - `x` - input tokens. Shape: [batch size, context length]
 - `mask` - optional attention mask. If None, causal mask is automatically used. Pass AttentionMask(None, None) to disable masking.
-- `kv_cache` - optional KV cache. Pass an empty dict ({}) to start caching. Otherwise no KV cache is returned, to save memory.
+- `kv_cache` - optional KV cache. Pass an empty dict ({}) to start caching. Otherwise, no KV cache is returned to save memory.
 
 
-The forward pass return a MoEUTOutput object, which has 3 fields:
+The forward pass returns a MoEUTOutput object, which has 3 fields:
 - `outputs` - output logits. Shape: [batch size, context length, vocabulary size]
-- `reg_loss` - scalar regularizaiton loss tensor, to be added to the cross entropy loss.
-- `cache` - updated KV cache, if caching is enabled (the kv_cache argument for the forward is not None). Pass this to the next forward pass as kv_cache.
+- `reg_loss` - scalar regularization loss tensor, to be added to the cross entropy loss.
+- `cache` - updated KV cache if caching is enabled (the kv_cache argument for the forward is not None). Pass this to the next forward pass as kv_cache.
 
 The AttentionMask has two optional boolean fields. True if to be removed. If None, they are ignored.
-- `src_length_mask` - for masking padding token in sequences. Useful if no autoregressive mask is applied. Shape: [batch size, context length]
+- `src_length_mask` - for masking padding tokens in sequences. Useful if no autoregressive mask is applied. Shape: [batch size, context length]
 - `position_mask` - position mask, e.g. the causal attention mask. Shape: [context length, context length]
 
 
-If you whish to use MoEUT for something else than language modeling, use ``MoEUT`` instead of ``MoEUTLM``. The consturctor is identical except of no `n_tokens` argument. The forward pass format is also identical, except the shape of inputs and outputs is [batch size, context length, d_model].
+If you wish to use MoEUT for something else than language modeling, use ``MoEUT`` instead of ``MoEUTLM``. The constructor is identical except for no `n_tokens` argument. The forward pass format is also identical, except the shape of inputs and outputs is [batch size, context length, d_model].
 
 ## Configurations used in the paper
 
