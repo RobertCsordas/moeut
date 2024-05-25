@@ -81,7 +81,7 @@ loss = F.cross_entropy(out.outputs.view(-1, vocab_size), tokens[:, 1:].flatten()
 
 A simple example can be found in `example.py`.
 
-## Useful tips:
+## Useful tips
 
 Try disabling SwitchHead attention for faster speed (`att_n_experts=1`). The degradation in predictive performance (perplexity) is minimal, still outperforming the dense baseline. Tested on 244M and 768M scales.
 
@@ -97,6 +97,6 @@ Try disabling SwitchHead attention for faster speed (`att_n_experts=1`). The deg
 └───README.md - this documentation.
 ```
 
-## Known issues:
+## Known issues
 
 Triton seems to be broken on Volta GPUs when using float16 starting from PyTorch 2.2 onwards (see [github issue](https://github.com/pytorch/pytorch/issues/127157)). Until the PyTorch team does not fix the issue, please downgrade to PyTorch 2.1 or disable AMP if you have Volta GPUs.
