@@ -4,6 +4,21 @@ Official implementation of our MoEUT model.
 
 The implementation uses the [CVMM Triton kernel](https://github.com/RobertCsordas/moe_layer/blob/master/triton_src/moe_layer/cvmm.py) from $\sigma$-MoE.
 
+## Example
+
+```python
+import moeut
+import profiles
+
+model = moeut.MoEUTLM(vocab_size, **profiles.MoEUT_244M).cuda()
+out = model(tokens[:, :-1])
+
+loss = F.cross_entropy(out.outputs.view(-1, vocab_size), tokens[:, 1:].flatten())
+(loss + out.reg_loss).backward()
+```
+
+A simple example can be found in `example.py`.
+
 ## Usage
 
 ```python
@@ -65,21 +80,6 @@ If you wish to use MoEUT for something else than language modeling, use ``MoEUT`
 ## Configurations used in the paper
 
 We provide the configurations used in the paper in `profiles.py`. We have the following options: `MoEUT_44M`, `MoEUT_126M`, `MoEUT_244M`, `MoEUT_318M`, `MoEUT_727M`, `MoEUT_1B`. They are dicts of parameters. Pass them to the constructor as e.g. `**MoEUT_1B`.
-
-## Example
-
-```python
-import moeut
-import profiles
-
-model = moeut.MoEUTLM(vocab_size, **profiles.MoEUT_244M).cuda()
-out = model(tokens[:, :-1])
-
-loss = F.cross_entropy(out.outputs.view(-1, vocab_size), tokens[:, 1:].flatten())
-(loss + out.reg_loss).backward()
-```
-
-A simple example can be found in `example.py`.
 
 ## Useful tips
 
