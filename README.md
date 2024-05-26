@@ -85,6 +85,10 @@ We provide the configurations used in the paper in `profiles.py`. We have the fo
 
 Try disabling SwitchHead attention for faster speed (`att_n_experts=1`). The degradation in predictive performance (perplexity) is minimal, still outperforming the dense baseline. Tested on 244M and 768M scales.
 
+## torch.compile() support
+
+torch.compile() is supported with PyTorch >= 2.3.
+
 ## Project structure
 ```
 ├───moeut - the MoEUT model. Copy this to your project.
