@@ -144,12 +144,12 @@ class SwitchHeadCore(torch.nn.Module):
         if self.n_experts > 1:
             self.v = torch.nn.Parameter(torch.empty(self.n_heads * self.n_experts, self.input_size, self.projection_size))
             self.o = torch.nn.Parameter(torch.empty(self.n_heads * self.n_experts, self.projection_size, self.output_size))
-
             self.sel_v = torch.nn.Parameter(torch.empty(self.n_heads * self.n_experts, self.input_size))
-            self.sel_o = torch.nn.Parameter(torch.empty(self.n_heads * self.n_experts, self.input_size))
         else:
             self.v = torch.nn.Parameter(torch.empty(self.n_heads * self.projection_size, self.input_size))
             self.o = torch.nn.Parameter(torch.empty(self.output_size, self.n_heads * self.projection_size))
+
+        self.sel_o = torch.nn.Parameter(torch.empty(self.n_heads * self.n_experts, self.input_size))
 
         self.register_buffer("scale", torch.full([1], 1.0 / math.sqrt(self.projection_size)), persistent=False)
 
@@ -157,9 +157,10 @@ class SwitchHeadCore(torch.nn.Module):
     def reset_parameters(self, std_scale: float):
         if self.n_experts > 1:
             torch.nn.init.normal_(self.sel_v, 0, std_scale / math.sqrt(self.input_size))
-            torch.nn.init.normal_(self.sel_o, 0, std_scale / math.sqrt(self.input_size))
             self.renorm_rows(self.sel_v)
-            self.renorm_rows(self.sel_o)
+
+        torch.nn.init.normal_(self.sel_o, 0, std_scale / math.sqrt(self.input_size))
+        self.renorm_rows(self.sel_o)
 
         torch.nn.init.normal_(self.k.weight, 0, std_scale / math.sqrt(self.input_size))
         torch.nn.init.normal_(self.q.weight, 0, std_scale / math.sqrt(self.input_size))
@@ -250,6 +251,7 @@ class SwitchHeadCore(torch.nn.Module):
 
             v = cvmm(v_src, v_sel, self.v).transpose(-2, -3)
         else:
+            o_gate = F.sigmoid(F.linear(q_src, self.sel_o))
             v = self.project_to_torch_order(F.linear(v_src, self.v))
 
         q = self.project_to_torch_order(q)
@@ -277,6 +279,7 @@ class SwitchHeadCore(torch.nn.Module):
             o_sel.reduction_weight = o_sel.reduction_weight.flatten(-2)
             out = cvmm(res, o_sel, self.o)
         else:
+            res = res * o_gate[..., None]
             out = F.linear(res.flatten(-2), self.o)
 
         return out, kv_cache

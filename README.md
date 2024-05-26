@@ -40,7 +40,7 @@ The meaning of the arguments:
 - `n_layers` - number of layers
 - `n_heads` - number of attention heads
 - `ff_n_experts` - number of experts in the MLP layer (per group element)
-- `att_n_experts` - the number of attention experts (per group elements). If `att_n_experts=1`, SwitchHead is disabled, and standard RoPE attention is used instead for efficiency reasons.
+- `att_n_experts` - the number of attention experts (per group elements). The `att_n_experts=1` case is handled specially for efficiency reasons. It behaves like a standard RoPE attention with a learned output gate.
 - `d_head` - the size of the K, Q, V projections in the attention
 - `group_size` - the number of non-shared layers in the group (G in the paper)
 - `ff_k` - the number of simultaneously active experts in the MLP layer
