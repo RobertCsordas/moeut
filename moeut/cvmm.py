@@ -26,6 +26,23 @@ def cvmm_prepare_sel(sel: torch.Tensor, n_experts: int) -> CVMMSel:
     return CVMMSel(sel, ssel.view_as(sel), sel_index, None)
 
 
+def get_dtype():
+    if not torch.is_autocast_enabled():
+        return torch.float32
+    return torch.get_autocast_gpu_dtype()
+
+
+def dtype_to_type_id(dtype: torch.dtype):
+    if dtype == torch.float32:
+        return 0
+    elif dtype == torch.float16:
+        return 1
+    elif dtype == torch.bfloat16:
+        return 2
+
+    raise ValueError("Unknown dtype")
+
+
 @triton.autotune(
     configs=[
         triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8}, num_stages=3, num_warps=8),
@@ -39,7 +56,7 @@ def cvmm_prepare_sel(sel: torch.Tensor, n_experts: int) -> CVMMSel:
         triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8}, num_stages=5, num_warps=2),
         triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8}, num_stages=4, num_warps=4),
     ],
-    key=['M', 'N', 'K', 'float32', 'allow_tf32']
+    key=['M', 'N', 'K', 'dtype_id', 'allow_tf32']
 )
 @triton.jit
 def cvmm_kernel(
@@ -55,7 +72,7 @@ def cvmm_kernel(
     stride_cm, stride_cn,
     stride_index, stride_sel, stride_out_index,
     out_index_is_none: tl.constexpr,
-    float32: tl.constexpr, allow_tf32: tl.constexpr,
+    dtype_id: tl.constexpr, allow_tf32: tl.constexpr,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE_M: tl.constexpr
@@ -114,9 +131,13 @@ def cvmm_kernel(
             b = tl.load(b_ptrs, mask=offs_k[:, None] < K - k * BLOCK_SIZE_K, other=0.0)
             # We accumulate along the K dimension.
 
-            if not float32:
+            # Triton was unhappy with passing dtypes as vars.
+            if dtype_id == 1:
                 a = a.to(tl.float16)
                 b = b.to(tl.float16)
+            elif dtype_id == 2:
+                a = a.to(tl.bfloat16)
+                b = b.to(tl.bfloat16)
 
             accumulator += tl.dot(a, b, allow_tf32=allow_tf32)
 
@@ -125,8 +146,10 @@ def cvmm_kernel(
             b_ptrs += BLOCK_SIZE_K * stride_bk
 
 
-        if not float32:
+        if dtype_id == 1:
             c = accumulator.to(tl.float16)
+        elif dtype_id == 2:
+            c = accumulator.to(tl.bfloat16)
         else:
             c = accumulator
 
@@ -166,7 +189,7 @@ def cvmm_kernel(
         triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 16, 'GROUP_SIZE_M': 8, 'K_BLOCKS': 32}, num_stages=4, num_warps=4),
         triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 16, 'GROUP_SIZE_M': 8, 'K_BLOCKS': 32}, num_stages=4, num_warps=4),
     ],
-    key=['M', 'N', 'K', 'float32_out', 'allow_tf32', 'op_float16'], reset_to_zero = ['c_ptr']
+    key=['M', 'N', 'K', 'out_dtype_id', 'allow_tf32', 'dtype_id'], reset_to_zero = ['c_ptr']
 )
 @triton.jit
 def cvmm_backward_kernel3(
@@ -182,7 +205,7 @@ def cvmm_backward_kernel3(
     stride_co, stride_cm, stride_cn,
     stride_index, stride_sel, stride_out_index,
     out_index_is_none: tl.constexpr,
-    float32_out: tl.constexpr, allow_tf32: tl.constexpr, op_float16: tl.constexpr,
+    out_dtype_id: tl.constexpr, allow_tf32: tl.constexpr, dtype_id: tl.constexpr,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE_M: tl.constexpr, K_BLOCKS: tl.constexpr
@@ -295,17 +318,22 @@ def cvmm_backward_kernel3(
                 a = tl.load(a_ptrs, mask=sel_ok[None, :], other=0.0)
                 b = tl.load(b_ptrs, mask=sel_ok[:, None], other=0.0)
 
-                if op_float16:
+                if dtype_id == 1:
                     a = a.to(tl.float16)
                     b = b.to(tl.float16)
+                elif dtype_id == 2:
+                    a = a.to(tl.bfloat16)
+                    b = b.to(tl.bfloat16)
 
                 # We accumulate along the K dimension.
                 accumulator += tl.dot(a, b, allow_tf32=allow_tf32)
 
-            if float32_out:
-                c = accumulator
-            else:
+            if out_dtype_id == 1:
                 c = accumulator.to(tl.float16)
+            elif out_dtype_id == 2:
+                c = accumulator.to(tl.bfloat16)
+            else:
+                c = accumulator
 
             # -----------------------------------------------------------
             # Write back the block of the output matrix C with masks.
@@ -364,7 +392,7 @@ def cvmm_triton(
         out.stride(0), out.stride(1),
         sel_index.stride(0), sel.stride(0), 0 if out_index_is_none else out_index.stride(0),
         out_index_is_none=out_index_is_none,
-        float32=out.dtype==torch.float32, allow_tf32=False, #torch.backends.cuda.matmul.allow_tf32
+        dtype_id = dtype_to_type_id(out.dtype), allow_tf32=False, #torch.backends.cuda.matmul.allow_tf32
     )
 
     return out.view(*sel_shape, N)
@@ -397,7 +425,7 @@ def cvmm_triton_backward(
     grads: torch.Tensor,
     n_experts: int,
     key_dtype: torch.dtype,
-    op_float16: bool,
+    op_dtype: torch.dtype,
     out_index: torch.Tensor
 ):
     x = x.flatten(end_dim=-2)
@@ -422,8 +450,8 @@ def cvmm_triton_backward(
         out.stride(0), out.stride(1), out.stride(2),
         sel_index.stride(0), sel.stride(0), 0 if out_index_is_none else out_index.stride(0),
         out_index_is_none=out_index_is_none,
-        float32_out=out.dtype == torch.float32,
-        op_float16=op_float16,
+        out_dtype_id=dtype_to_type_id(out.dtype),
+        dtype_id=dtype_to_type_id(op_dtype),
         allow_tf32=False #torch.backends.cuda.matmul.allow_tf32
     )
     return out
@@ -443,7 +471,8 @@ class CVMM(torch.autograd.Function):
         reduction_weight: Optional[torch.Tensor] = None
     ):
         ctx.save_for_backward(x, keys, sel, sel_index, out_index, reduction_weight)
-        out_type = torch.float16 if torch.is_autocast_enabled() else x.dtype
+
+        out_type = get_dtype()
         if out_index is None:
             out_index = torch.tensor(-1).cuda()
 
@@ -455,7 +484,7 @@ class CVMM(torch.autograd.Function):
 
         ctx.op_type = out_type
         ctx.keys_type = keys.dtype
-        ctx.is_autocast = torch.is_autocast_enabled()
+        ctx.dtype = out_type
         return res
 
     @staticmethod
@@ -482,7 +511,7 @@ class CVMM(torch.autograd.Function):
             grad_output_w,
             keys_dt.shape[0],
             ctx.keys_type,
-            ctx.is_autocast,
+            ctx.dtype,
             out_index=out_index
         )
 
