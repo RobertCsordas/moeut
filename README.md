@@ -1,8 +1,10 @@
 # MoEUT: Mixture-of-Experts Universal Transformers
 
-Official implementation of our MoEUT model.
+Official implementation of our [MoEUT](https://arxiv.org/abs/2405.16039) model.
 
 The implementation uses the [CVMM Triton kernel](https://github.com/RobertCsordas/moe_layer/blob/master/triton_src/moe_layer/cvmm.py) from $\sigma$-MoE.
+
+For the training code, please refer to [https://github.com/RobertCsordas/moeut_training_code](https://github.com/RobertCsordas/moeut_training_code).
 
 ## Example
 
