@@ -342,6 +342,9 @@ class SwitchHeadRope(SwitchHeadCore):
             state_size, n_heads, n_experts, dropout, projection_size, expert_dropout, moe_k)
 
         self.n_rotate = int(rotate_fraction * self.projection_size)
+        # RoPE likes only even no. of channels
+        self.n_rotate = self.n_rotate - self.n_rotate % 2
+                     
         if self.n_rotate > 0:
             self.pe = RotaryPosEncoding(self.n_rotate, seq_dim=-2, base=rope_base)
 
