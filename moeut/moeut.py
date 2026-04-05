@@ -233,9 +233,6 @@ class SwitchHeadCore(torch.nn.Module):
                 kv_cache: KVCache = None) -> Tuple[torch.Tensor, KVCache]:
         # *src: [batch_size, out_len, c]
 
-        pos_offset = q_src.shape[1] - k_src.shape[1]
-        assert pos_offset >= 0
-
         scale = self.scale.sqrt()
 
         q = self.q(q_src)
@@ -264,6 +261,12 @@ class SwitchHeadCore(torch.nn.Module):
                 "v": v,
                 "k": k
             }
+
+        # RoPE query positions must be derived from the final source length after cache
+        # concatenation. In incremental decoding, the current query token sits at the end
+        # of the cached prefix rather than at position 0.
+        pos_offset = k.shape[-2] - q.shape[-2]
+        assert pos_offset >= 0
 
         q = self.dropout(q)
         res = self.attend(pos_offset, v, k, q, self.get_mask_tensor(v.shape[-2], mask))
